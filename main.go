@@ -1,10 +1,13 @@
 package main
 
 import (
-	"github.com/rivo/tview"
+	"fmt"
+	"lazytask/ui"
 )
 
 func main() {
-	app := tview.NewApplication()
-
+	app := ui.InitializeApp()
+	if err := app.Run(); err != nil {
+		fmt.Println("Unable to run the app: ", err)
+	}
 }
