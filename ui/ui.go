@@ -13,6 +13,7 @@ type App struct {
 	app       *tview.Application
 	pages     *tview.Pages
 	taskTable *tview.Table
+	footer    *tview.TextView
 }
 
 func InitializeApp() *App {
@@ -33,29 +34,37 @@ func (a *App) buildUI() {
 		SetSelectable(true, false).
 		SetBorders(false)
 
+	a.footer = tview.NewTextView().
+		SetText("Controls: [green]a[white]-Add [green]d[white]-Delete [green]Enter[white]-Edit [green]q[white]-Quit").
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignCenter)
+
 	a.loadTasks()
 
 	a.taskTable.SetSelectedFunc(func(row int, col int) {
 		task := tasks.GetTasks()[row-1]
-		a.showTaskModal(task)
+		a.showTaskForm(task, false)
 	})
 
 	a.taskTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Rune() {
 		case 'a':
-			a.showAddTaskModal()
+			a.showTaskForm(&tasks.Task{}, true)
 		case 'd':
 			row, _ := a.taskTable.GetSelection()
 			task := tasks.GetTasks()[row-1]
 			tasks.DeleteTask(task.ID)
 			a.loadTasks()
+		case 'q':
+			a.app.Stop()
 		}
 		return event
 	})
 
 	layout := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(a.taskTable, 0, 1, true)
+		AddItem(a.taskTable, 0, 1, true).
+		AddItem(a.footer, 1, 0, false)
 
 	a.pages.AddPage("main", layout, true, true)
 	a.app.SetRoot(a.pages, true)
@@ -90,57 +99,74 @@ func (a *App) loadTasks() {
 	}
 }
 
-func (a *App) showTaskModal(task *tasks.Task) {
+func (a *App) showTaskForm(task *tasks.Task, isNew bool) {
+
 	statusOptions := []string{"TODO", "IN PROGRESS", "DONE"}
+
+	titleInput := tview.NewInputField().
+		SetLabel("Title").
+		SetFieldWidth(40).
+		SetText(task.Title)
+
+	descriptionInput := tview.NewInputField().
+		SetLabel("Description").
+		SetFieldWidth(40).
+		SetText(task.Description)
+
+	statusDropdown := tview.NewDropDown().
+		SetLabel("Status").
+		SetOptions(statusOptions, nil).
+		SetCurrentOption(task.StatusCode)
+
 	form := tview.NewForm().
-		AddInputField("Title", task.Title, 20, nil, func(text string) {
-			task.Title = text
-		}).
-		AddInputField("Description", task.Description, 20, nil, func(text string) {
-			task.Description = text
-		}).
-		AddDropDown("Status", statusOptions, task.StatusCode, func(option string, index int) {
-			task.StatusCode = index
-		}).
+		AddFormItem(titleInput).
+		AddFormItem(descriptionInput).
+		AddFormItem(statusDropdown).
 		AddButton("Save", func() {
-			tasks.UpdateTask(task)
+			task.Title = titleInput.GetText()
+			task.Description = descriptionInput.GetText()
+			statusIndex, _ := statusDropdown.GetCurrentOption()
+			task.StatusCode = statusIndex
+
+			if isNew {
+				tasks.AddTask(task)
+			} else {
+				tasks.UpdateTask(task)
+			}
 			a.loadTasks()
 			a.pages.RemovePage("modal")
+			a.app.SetFocus(a.taskTable)
 		}).
 		AddButton("Cancel", func() {
 			a.pages.RemovePage("modal")
+			a.app.SetFocus(a.taskTable)
 		})
 
-	form.SetBorder(true).SetTitle(fmt.Sprintf("Task ID: %d", task.ID)).SetTitleAlign(tview.AlignCenter)
+	form.SetBorder(true).
+		SetTitle(func() string {
+			if isNew {
+				return "Add Task"
+			}
+			return fmt.Sprintf("Edit Task ID: %d", task.ID)
+		}()).
+		SetTitleAlign(tview.AlignCenter)
 
-	a.pages.AddPage("modal", form, true, true)
+	form.SetFocus(0)
+
+	a.pages.AddPage("modal", a.createModal(form, 60, 18), true, true)
+	a.app.SetFocus(form)
+
 }
 
-func (a *App) showAddTaskModal() {
-	newTask := &tasks.Task{
-		Title:       "",
-		Description: "",
-		StatusCode:  0,
-	}
-
-	form := tview.NewForm().
-		AddInputField("Title", "", 20, nil, func(text string) {
-			newTask.Title = text
-		}).
-		AddInputField("Description", "", 40, nil, func(text string) {
-			newTask.Description = text
-		}).
-		AddButton("Save", func() {
-			tasks.AddTask(newTask)
-			a.loadTasks()
-			a.pages.RemovePage("modal")
-		}).
-		AddButton("Cancel", func() {
-			a.pages.RemovePage("modal")
-		})
-
-	form.SetBorder(true).SetTitle("Add Task").SetTitleAlign(tview.AlignLeft)
-
-	a.pages.AddPage("modal", form, true, true)
-	a.app.SetFocus(form)
+func (a *App) createModal(p tview.Primitive, width, height int) tview.Primitive {
+	modal := tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(
+			tview.NewFlex().SetDirection(tview.FlexRow).
+				AddItem(nil, 0, 1, false).
+				AddItem(p, height, 1, true).
+				AddItem(nil, 0, 1, false),
+			width, 1, true).
+		AddItem(nil, 0, 1, false)
+	return modal
 }
